@@ -24,7 +24,7 @@ const ADMIN_IDS = String(process.env.ADMIN_IDS || process.env.ADMIN_ID || "")
 let ADMIN_ID = "";
 const MONGO_URI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/oustabashi";
 const BALE_API = process.env.BALE_API || "https://tapi.bale.ai";
-const PDF_PYTHON = process.env.PDF_PYTHON || "C:\\Users\\Behiii\\AppData\\Local\\Programs\\GapGPT\\resources\\gap-runtime\\python\\python.exe";
+const PDF_PYTHON = process.env.PDF_PYTHON || (process.platform === "win32" ? "C:\\Users\\Behiii\\AppData\\Local\\Programs\\GapGPT\\resources\\gap-runtime\\python\\python.exe" : "python3");
 const TIME_ZONE = "Asia/Tehran";
 const pendingReasons = new Map();
 const reportStates = new Map();

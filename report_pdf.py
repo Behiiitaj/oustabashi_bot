@@ -3,7 +3,7 @@ import os
 import sys
 from pathlib import Path
 
-SKILL_DIR = Path(os.environ.get("PDF_SKILL_DIR", r"C:\Users\Behiii\.gapcode\plugins\cache\gapgpt\pdf\26.722.10000\skills\pdf"))
+SKILL_DIR = Path(os.environ.get("PDF_SKILL_DIR", Path(__file__).with_name("pdf_support")))
 sys.path.insert(0, str(SKILL_DIR / "scripts"))
 
 from fa_pdf import register_persian_fonts, rtl_line, rtl_paragraph
