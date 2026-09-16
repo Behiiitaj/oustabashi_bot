@@ -46,6 +46,24 @@ function today() {
   const p = new Intl.DateTimeFormat("en-CA", { timeZone: TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date()).reduce((o, x) => (o[x.type] = x.value, o), {});
   return `${p.year}-${p.month}-${p.day}`;
 }
+function jalaliToGregorian(jy, jm, jd) {
+  jy += 1595; let days = -355668 + 365 * jy + Math.floor(jy / 33) * 8 + Math.floor((jy % 33 + 3) / 4) + jd + (jm < 7 ? (jm - 1) * 31 : (jm - 7) * 30 + 186);
+  let gy = 400 * Math.floor(days / 146097); days %= 146097;
+  if (days > 36524) { gy += 100 * Math.floor(--days / 36524); days %= 36524; if (days >= 365) days++; }
+  gy += 4 * Math.floor(days / 1461); days %= 1461;
+  if (days > 365) { gy += Math.floor((days - 1) / 365); days = (days - 1) % 365; }
+  const monthDays = [31, (gy % 4 === 0 && gy % 100 !== 0) || gy % 400 === 0 ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]; let gm = 0;
+  while (gm < 11 && days >= monthDays[gm]) days -= monthDays[gm++];
+  return `${gy}-${String(gm + 1).padStart(2, "0")}-${String(days + 1).padStart(2, "0")}`;
+}
+function gregorianToJalali(date) {
+  const [gy, gm, gd] = date.split("-").map(Number); let jy = gy - 621; const march = 20; const first = new Date(Date.UTC(gy, 2, march)); const current = new Date(Date.UTC(gy, gm - 1, gd));
+  if (current < first) jy--; const start = jalaliToGregorian(jy, 1, 1); const diff = Math.floor((current - new Date(`${start}T00:00:00Z`)) / 86400000); const jm = diff < 186 ? Math.floor(diff / 31) + 1 : Math.floor((diff - 186) / 30) + 7; const jd = diff < 186 ? diff % 31 + 1 : (diff - 186) % 30 + 1;
+  return `${jy}-${String(jm).padStart(2, "0")}-${String(jd).padStart(2, "0")}`;
+}
+function jalaliToday() { return gregorianToJalali(today()); }
+function displayDate(date) { return gregorianToJalali(date); }
+function inputDate(value) { const match = String(value || "").match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/); return match ? jalaliToGregorian(Number(match[1]), Number(match[2]), Number(match[3])) : null; }
 function dateObject(date) { return new Date(`${date}T12:00:00+03:30`); }
 function weekdayName(date) { return new Intl.DateTimeFormat("en-US", { timeZone: TIME_ZONE, weekday: "long" }).format(dateObject(date)).toUpperCase(); }
 function addDays(date, days) { const d = dateObject(date); d.setDate(d.getDate() + days); return d.toISOString().slice(0, 10); }
@@ -109,7 +127,7 @@ async function sendWorkers(chatId, date, back = "menu") {
   const workers = await Worker.find({ active: true }).sort({ name: 1 });
   uiStates.set(String(chatId), { screen: "workers", date, workers: workers.map((worker) => ({ id: String(worker._id), name: worker.name })) });
   const rows = workers.map((worker) => [worker.name]); rows.push([back === "menu" ? "↩️ بازگشت به منو" : "↩️ بازگشت به انتخاب شخص"]);
-  await bot.sendMessage(chatId, `شخص مورد نظر برای تاریخ ${date}:`, replyKeyboard(rows));
+  await bot.sendMessage(chatId, `شخص مورد نظر برای تاریخ ${displayDate(date)}:`, replyKeyboard(rows));
 }
 async function sendTasks(chatId, workerId, date, page = 1) {
   const worker = await Worker.findById(workerId); const tasks = await Task.find({ workerId, active: true }).sort({ order: 1 }); const records = await TaskRecord.find({ workerId, date });
@@ -137,13 +155,13 @@ async function sendTasks(chatId, workerId, date, page = 1) {
   await bot.sendMessage(chatId, `تسک‌های باقی‌مانده ${worker.name} — صفحه ${safePage} از ${totalPages}:\n\n${rows.join("\n")}`, replyKeyboard(keyboard));
 }
 
-function currentYearMonthDay() { const value = today(); return { year: Number(value.slice(0, 4)), month: Number(value.slice(5, 7)), day: Number(value.slice(8, 10)) }; }
+function currentYearMonthDay() { const value = jalaliToday(); return { year: Number(value.slice(0, 4)), month: Number(value.slice(5, 7)), day: Number(value.slice(8, 10)) }; }
 function monthKeyboard() {
   const current = currentYearMonthDay(); const rows = [];
   for (let start = 1; start <= current.month; start += 3) rows.push([start, start + 1, start + 2].filter((month) => month <= current.month).map((month) => `ماه ${month}`));
   rows.push(["↩️ بازگشت به منو"]); return replyKeyboard(rows);
 }
-function maxDayForMonth(month) { const current = currentYearMonthDay(); return month === current.month ? current.day : new Date(current.year, month, 0).getDate(); }
+function maxDayForMonth(month) { const current = currentYearMonthDay(); if (month === current.month) return current.day; return month <= 6 ? 31 : month <= 11 ? 30 : 30; }
 function dayKeyboard(stage, month, page = 1) {
   const maxDay = maxDayForMonth(month); const perPage = 15; const totalPages = Math.ceil(maxDay / perPage); const safePage = Math.min(Math.max(Number(page) || 1, 1), totalPages); const start = (safePage - 1) * perPage + 1; const end = Math.min(safePage * perPage, maxDay); const rows = [];
   for (let day = start; day <= end; day += 5) rows.push(Array.from({ length: Math.min(5, end - day + 1) }, (_, index) => String(day + index)));
@@ -154,6 +172,12 @@ async function startReport(chatId) { reportStates.set(ADMIN_ID, {}); uiStates.se
 async function requestReportStart(chatId, month) { reportStates.set(ADMIN_ID, { month }); uiStates.set(ADMIN_ID, { screen: "reportStart", month, page: 1 }); await bot.sendMessage(chatId, `ماه ${month} را انتخاب کردید. روز شروع:`, dayKeyboard("start", month)); }
 async function requestReportEnd(chatId, month) { uiStates.set(ADMIN_ID, { screen: "reportEnd", month, page: 1 }); await bot.sendMessage(chatId, "روز پایان را انتخاب کنید:", dayKeyboard("end", month)); }
 async function reportWorker(chatId) { const state = reportStates.get(ADMIN_ID); const workers = await Worker.find({ active: true }).sort({ name: 1 }); uiStates.set(ADMIN_ID, { screen: "reportWorker", start: state && state.start, end: state && state.end, workers: workers.map((worker) => ({ id: String(worker._id), name: worker.name })) }); await bot.sendMessage(chatId, `بازه ${state && state.start ? state.start : "نامشخص"} تا ${state && state.end ? state.end : "نامشخص"}. فقط یک نفر را انتخاب کنید:`, replyKeyboard([...workers.map((worker) => [worker.name]), ["↩️ بازگشت به منو"]])); }
+
+async function reportWorker(chatId) {
+  const state = reportStates.get(ADMIN_ID); const workers = await Worker.find({ active: true }).sort({ name: 1 });
+  uiStates.set(ADMIN_ID, { screen: "reportWorker", start: state && state.start, end: state && state.end, workers: workers.map((worker) => ({ id: String(worker._id), name: worker.name })) });
+  await bot.sendMessage(chatId, `بازه ${state && state.start ? displayDate(state.start) : "نامشخص"} تا ${state && state.end ? displayDate(state.end) : "نامشخص"}. فقط یک نفر را انتخاب کنید:`, replyKeyboard([...workers.map((worker) => [worker.name]), ["↩️ بازگشت به منو"]]));
+}
 
 async function buildReportData(workerId, start, end) {
   const worker = await Worker.findById(workerId); const tasks = await Task.find({ workerId, active: true }).sort({ order: 1 }); const rows = []; const dayNotes = []; let doneCount = 0;
@@ -175,7 +199,7 @@ async function buildReportData(workerId, start, end) {
       else rows.push({ date, task: task.title, status: record ? record.status : "NOT_CHECKED", reason: record && record.reason ? record.reason : "" });
     }
   }
-  return { worker: worker.name, start, end, rows, doneCount, dayNotes };
+  return { worker: worker.name, start: displayDate(start), end: displayDate(end), rows: rows.map((row) => ({ ...row, date: displayDate(row.date) })), doneCount, dayNotes: dayNotes.map((item) => ({ ...item, date: displayDate(item.date) })) };
 }
 function createPdf(data) {
   const safeWorkerName = data.worker.replace(/[<>:"/\\|?*\x00-\x1F]/g, " ").replace(/\s+/g, " ").trim();
@@ -186,7 +210,7 @@ async function sendReportPdf(chatId, workerId) { const saved = reportStates.get(
 
 bot.onText(/^\/(start|menu)$/i, async (message) => { if (!allowed(message)) return bot.sendMessage(message.chat.id, `شناسه شما: ${message.from.id}`); await bot.sendMessage(message.chat.id, "مدیریت تسک‌ها", menu()); });
 bot.onText(/^\/myid$/i, (message) => bot.sendMessage(message.chat.id, `شناسه شما: ${message.from.id}`));
-bot.onText(/^\/check(?:\s+(\d{4}-\d{2}-\d{2}))?$/i, async (message, match) => { if (allowed(message)) await sendWorkers(message.chat.id, match[1] || today()); });
+bot.onText(/^\/check(?:\s+(\d{4}-\d{1,2}-\d{1,2}))?$/i, async (message, match) => { if (allowed(message)) { const date = match[1] ? inputDate(match[1]) : today(); if (date) await sendWorkers(message.chat.id, date); } });
 bot.onText(/^\/report$/i, async (message) => { if (allowed(message)) await startReport(message.chat.id); });
 
 bot.on("message_legacy_disabled", async (message) => {
@@ -206,7 +230,7 @@ bot.on("callback_query", async (query) => {
   try {
     if (kind === "back" && a === "menu") { pendingReasons.delete(ADMIN_ID); reportStates.delete(ADMIN_ID); await bot.sendMessage(chatId, "مدیریت تسک‌ها", menu()); }
     else if (kind === "back" && a === "workers") await sendWorkers(chatId, b);
-    else if (kind === "workers") await sendWorkers(chatId, a === "today" ? today() : a);
+    else if (kind === "workers") await sendWorkers(chatId, a === "today" ? today() : (inputDate(a) || a));
     else if (kind === "worker") await sendTasks(chatId, a, b, 1);
     else if (kind === "tasks") await sendTasks(chatId, a, b, c);
     else if (kind === "set") {
@@ -289,7 +313,7 @@ bot.on("message", async (message) => {
     const day = Number(text);
     if (!Number.isInteger(day) || day < 1 || day > maxDayForMonth(state.month)) return;
     const year = currentYearMonthDay().year;
-    const date = `${year}-${String(state.month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const date = jalaliToGregorian(year, state.month, day);
     const reportState = reportStates.get(ADMIN_ID);
     if (state.screen === "reportStart") { reportState.start = date; return requestReportEnd(chatId, state.month); }
     reportState.end = date;
